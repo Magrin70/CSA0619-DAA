@@ -1,0 +1,37 @@
+patients = [
+    {"id": 105, "name": "Rahul Sharma", "disease": "Fracture"},
+    {"id": 102, "name": "Priya Singh", "disease": "Fever"},
+    {"id": 110, "name": "Amit Kumar", "disease": "Diabetes"},
+    {"id": 101, "name": "Sneha Reddy", "disease": "Asthma"},
+    {"id": 108, "name": "Karan Mehta", "disease": "Heart Condition"},
+]
+
+def sequential_search(records, target_id):
+    comparisons = 0
+    for record in records:
+        comparisons += 1
+        if record["id"] == target_id:
+            return record, comparisons
+    return None, comparisons
+
+# --- Test the search ---
+search_id = 110
+result, comparisons = sequential_search(patients, search_id)
+
+if result:
+    print(f"Record Found: {result}")
+else:
+    print("Record Not Found")
+
+print(f"Comparisons made: {comparisons}")
+
+# --- Demonstrate best, worst, average cases ---
+print("\nBest Case (first record):")
+r, c = sequential_search(patients, 105)
+print(f"Found in {c} comparison(s)")
+
+print("\nWorst Case (last record or not found):")
+r, c = sequential_search(patients, 999)  # not in list
+print(f"Comparisons made: {c} (record not found)")
+
+print("\nTime Complexity: O(1) best, O(n) worst, O(n) average")
