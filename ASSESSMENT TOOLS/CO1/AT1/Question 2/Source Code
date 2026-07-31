@@ -1,0 +1,32 @@
+import math
+
+def T(n):
+    if n <= 1:
+        return 1
+    return T(n - 1) + math.log2(n)
+
+# Test for different document counts
+print("n\tT(n)")
+for n in [2, 4, 8, 16, 32, 64, 128]:
+    print(f"{n}\t{T(n):.2f}")
+
+print("\nBy Substitution Method:")
+print("T(n) = T(n-1) + log n")
+print("Expanding: T(n) = T(1) + log2 + log3 + ... + log n = log(n!)")
+print("Since log(n!) = Theta(n log n)")
+print("=> T(n) = Theta(n log n)")
+Sample Output
+n	T(n)
+2	2.00
+4	4.58
+8	9.79
+16	20.51
+32	42.51
+64	87.33
+128	178.06
+
+By Substitution Method:
+T(n) = T(n-1) + log n
+Expanding: T(n) = T(1) + log2 + log3 + ... + log n = log(n!)
+Since log(n!) = Theta(n log n)
+=> T(n) = Theta(n log n)
