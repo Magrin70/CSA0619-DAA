@@ -1,0 +1,12 @@
+def linear_search(arr, key):
+    for i in range(len(arr)):   # FIXED: now starts from index 0
+        if arr[i] == key:
+            return i
+    return -1
+
+# Test the corrected function
+arr = [10, 20, 30, 40, 50]
+
+print(linear_search(arr, 10))   # first element -> should return 0
+print(linear_search(arr, 30))   # middle element -> should return 2
+print(linear_search(arr, 99))   # not present -> should return -1
