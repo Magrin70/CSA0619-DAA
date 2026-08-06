@@ -1,0 +1,176 @@
+"""
+quicksort_variants.py
+----------------------
+Instrumented implementations of Quick Sort using:
+  1. Lomuto partition scheme
+  2. Hoare partition scheme
+
+Both implementations count the number of element SWAPS and the number
+of key COMPARISONS performed, so the two schemes can be compared fairly
+on the same input arrays.
+"""
+
+import random
+import time
+import sys
+import copy
+
+sys.setrecursionlimit(20000)
+
+
+class Counter:
+    """Holds swap/comparison counters for one sort run."""
+    def __init__(self):
+        self.swaps = 0
+        self.comparisons = 0
+
+    def reset(self):
+        self.swaps = 0
+        self.comparisons = 0
+
+
+def _swap(arr, i, j, counter):
+    if i != j:
+        arr[i], arr[j] = arr[j], arr[i]
+        counter.swaps += 1
+
+
+# ---------------------------------------------------------------------
+# LOMUTO PARTITION SCHEME
+# ---------------------------------------------------------------------
+def lomuto_partition(arr, low, high, counter):
+    pivot = arr[high]          # last element as pivot
+    i = low - 1
+    for j in range(low, high):
+        counter.comparisons += 1
+        if arr[j] <= pivot:
+            i += 1
+            _swap(arr, i, j, counter)
+    _swap(arr, i + 1, high, counter)
+    return i + 1
+
+
+def quicksort_lomuto(arr, low, high, counter):
+    if low < high:
+        pi = lomuto_partition(arr, low, high, counter)
+        quicksort_lomuto(arr, low, pi - 1, counter)
+        quicksort_lomuto(arr, pi + 1, high, counter)
+
+
+# ---------------------------------------------------------------------
+# HOARE PARTITION SCHEME
+# ---------------------------------------------------------------------
+def hoare_partition(arr, low, high, counter):
+    pivot = arr[low]           # first element as pivot
+    i = low - 1
+    j = high + 1
+    while True:
+        i += 1
+        counter.comparisons += 1
+        while arr[i] < pivot:
+            i += 1
+            counter.comparisons += 1
+
+        j -= 1
+        counter.comparisons += 1
+        while arr[j] > pivot:
+            j -= 1
+            counter.comparisons += 1
+
+        if i >= j:
+            return j
+        _swap(arr, i, j, counter)
+
+
+def quicksort_hoare(arr, low, high, counter):
+    if low < high:
+        pi = hoare_partition(arr, low, high, counter)
+        quicksort_hoare(arr, low, pi, counter)
+        quicksort_hoare(arr, pi + 1, high, counter)
+
+
+# ---------------------------------------------------------------------
+# EXPERIMENT HARNESS
+# ---------------------------------------------------------------------
+def generate_array(n, kind):
+    if kind == "random":
+        return [random.randint(0, 1_000_000) for _ in range(n)]
+    if kind == "sorted":
+        return list(range(n))
+    if kind == "reverse":
+        return list(range(n, 0, -1))
+    if kind == "duplicates":
+        return [random.randint(0, 10) for _ in range(n)]
+    raise ValueError(kind)
+
+
+def run_single(sort_fn, arr):
+    counter = Counter()
+    a = copy.copy(arr)
+    start = time.perf_counter()
+    sort_fn(a, 0, len(a) - 1, counter)
+    end = time.perf_counter()
+    assert a == sorted(arr), "Sort produced an incorrect result!"
+    return (end - start), counter.swaps, counter.comparisons
+
+
+def run_experiment(sizes, kinds, trials=5):
+    results = []
+    for kind in kinds:
+        for n in sizes:
+            lomuto_times, lomuto_swaps, lomuto_cmp = [], [], []
+            hoare_times, hoare_swaps, hoare_cmp = [], [], []
+            for t in range(trials):
+                base_arr = generate_array(n, kind)
+
+                lt, ls, lc = run_single(quicksort_lomuto, base_arr)
+                lomuto_times.append(lt)
+                lomuto_swaps.append(ls)
+                lomuto_cmp.append(lc)
+
+                ht, hs, hc = run_single(quicksort_hoare, base_arr)
+                hoare_times.append(ht)
+                hoare_swaps.append(hs)
+                hoare_cmp.append(hc)
+
+            def avg(lst):
+                return sum(lst) / len(lst)
+
+            results.append({
+                "kind": kind,
+                "n": n,
+                "lomuto_time_ms": avg(lomuto_times) * 1000,
+                "lomuto_swaps": avg(lomuto_swaps),
+                "lomuto_cmp": avg(lomuto_cmp),
+                "hoare_time_ms": avg(hoare_times) * 1000,
+                "hoare_swaps": avg(hoare_swaps),
+                "hoare_cmp": avg(hoare_cmp),
+            })
+    return results
+
+
+if __name__ == "__main__":
+    random.seed(42)
+    all_data = []
+
+    # Random & duplicate inputs behave well (O(n log n)) even with a
+    # fixed pivot, so we can push these to larger n.
+    all_data += run_experiment([100, 500, 1000, 5000, 10000],
+                                ["random", "duplicates"], trials=7)
+
+    # Sorted / reverse-sorted inputs trigger QuickSort's O(n^2) worst
+    # case with a fixed first/last-element pivot, so we cap n lower
+    # to keep the experiment tractable while still exposing the effect.
+    all_data += run_experiment([100, 500, 1000, 2000, 3000],
+                                ["sorted", "reverse"], trials=5)
+
+    print(f"{'Type':<11}{'n':>7}{'Lomuto ms':>12}{'Lomuto swaps':>15}"
+          f"{'Hoare ms':>11}{'Hoare swaps':>14}")
+    for row in all_data:
+        print(f"{row['kind']:<11}{row['n']:>7}"
+              f"{row['lomuto_time_ms']:>12.3f}{row['lomuto_swaps']:>15.0f}"
+              f"{row['hoare_time_ms']:>11.3f}{row['hoare_swaps']:>14.0f}")
+
+    import json
+    with open("results.json", "w") as f:
+        json.dump(all_data, f, indent=2)
