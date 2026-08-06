@@ -1,0 +1,110 @@
+
+
+import random
+import string
+import time
+import json
+
+
+# ---------------------------------------------------------------------
+# ALGORITHMS
+# ---------------------------------------------------------------------
+def binary_search(sorted_keywords, target):
+    """Iterative binary search. Returns (found_index_or_-1, comparisons)."""
+    lo, hi = 0, len(sorted_keywords) - 1
+    comparisons = 0
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        comparisons += 1
+        if sorted_keywords[mid] == target:
+            return mid, comparisons
+        elif sorted_keywords[mid] < target:
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return -1, comparisons
+
+
+def linear_search(keywords, target):
+    """Sequential scan. Returns (found_index_or_-1, comparisons)."""
+    comparisons = 0
+    for i, kw in enumerate(keywords):
+        comparisons += 1
+        if kw == target:
+            return i, comparisons
+    return -1, comparisons
+
+
+# ---------------------------------------------------------------------
+# INDEX / QUERY GENERATION
+# ---------------------------------------------------------------------
+def make_keyword_index(n, seed):
+    """Generate n unique, sorted pseudo-keywords (search-engine index)."""
+    rnd = random.Random(seed)
+    words = set()
+    while len(words) < n:
+        length = rnd.randint(4, 10)
+        w = "".join(rnd.choices(string.ascii_lowercase, k=length))
+        words.add(w)
+    return sorted(words)
+
+
+def run_experiment(sizes, queries_per_size=500, seed=7):
+    rnd = random.Random(seed)
+    results = []
+    for n in sizes:
+        # Scale down query count for very large indexes to keep the
+        # linear-search baseline (O(n) per miss query) tractable.
+        q_count = queries_per_size if n <= 20_000 else max(40, queries_per_size // (n // 20_000))
+        index = make_keyword_index(n, seed=seed)
+        index_set = set(index)  # O(1) membership checks for miss-query generation
+
+        # 50% of queries are real keywords ("hits"), 50% are unknown terms ("misses")
+        hit_queries = rnd.sample(index, min(q_count // 2, n))
+        miss_queries = []
+        while len(miss_queries) < q_count // 2:
+            length = rnd.randint(4, 10)
+            w = "".join(rnd.choices(string.ascii_lowercase, k=length))
+            if w not in index_set:
+                miss_queries.append(w)
+        queries = hit_queries + miss_queries
+
+        bin_cmp_total, bin_time_total = 0, 0.0
+        lin_cmp_total, lin_time_total = 0, 0.0
+
+        for q in queries:
+            t0 = time.perf_counter()
+            _, c = binary_search(index, q)
+            t1 = time.perf_counter()
+            bin_time_total += (t1 - t0)
+            bin_cmp_total += c
+
+            t0 = time.perf_counter()
+            _, c = linear_search(index, q)
+            t1 = time.perf_counter()
+            lin_time_total += (t1 - t0)
+            lin_cmp_total += c
+
+        results.append({
+            "n": n,
+            "binary_avg_comparisons": bin_cmp_total / len(queries),
+            "binary_avg_time_us": (bin_time_total / len(queries)) * 1_000_000,
+            "linear_avg_comparisons": lin_cmp_total / len(queries),
+            "linear_avg_time_us": (lin_time_total / len(queries)) * 1_000_000,
+        })
+    return results
+
+
+if __name__ == "__main__":
+    sizes = [100, 1_000, 10_000, 100_000, 1_000_000]
+    data = run_experiment(sizes, queries_per_size=400)
+
+    print(f"{'n':>10}{'Bin cmp':>12}{'Bin us':>12}{'Lin cmp':>14}{'Lin us':>14}")
+    for row in data:
+        print(f"{row['n']:>10}{row['binary_avg_comparisons']:>12.2f}"
+              f"{row['binary_avg_time_us']:>12.3f}"
+              f"{row['linear_avg_comparisons']:>14.2f}"
+              f"{row['linear_avg_time_us']:>14.3f}")
+
+    with open("results.json", "w") as f:
+        json.dump(data, f, indent=2)
