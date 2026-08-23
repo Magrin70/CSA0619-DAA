@@ -1,0 +1,51 @@
+#include <stdio.h>
+#include <limits.h>
+ 
+#define N 4
+#define INF INT_MAX
+ 
+int cost[N][N] = {
+    {0, 10, 15, 20},
+    {10, 0, 35, 25},
+    {15, 35, 0, 30},
+    {20, 25, 30, 0}
+};
+ 
+int dp[1 << N][N];
+ 
+int main() {
+    int n = N;
+    int VISITED_ALL = (1 << n) - 1;
+ 
+    for (int mask = 0; mask < (1 << n); mask++)
+        for (int i = 0; i < n; i++)
+            dp[mask][i] = INF;
+ 
+    dp[1][0] = 0;   // start at city 0, only city 0 visited
+ 
+    for (int mask = 1; mask <= VISITED_ALL; mask++) {
+        for (int i = 0; i < n; i++) {
+            if (!(mask & (1 << i)) || dp[mask][i] == INF) continue;
+ 
+            for (int j = 0; j < n; j++) {
+                if (mask & (1 << j)) continue;   // already visited
+                int newMask = mask | (1 << j);
+                int newCost = dp[mask][i] + cost[i][j];
+                if (newCost < dp[newMask][j])
+                    dp[newMask][j] = newCost;
+            }
+        }
+    }
+ 
+    int minCost = INF;
+    for (int i = 1; i < n; i++) {
+        if (dp[VISITED_ALL][i] != INF) {
+            int total = dp[VISITED_ALL][i] + cost[i][0];
+            if (total < minCost)
+                minCost = total;
+        }
+    }
+ 
+    printf("Minimum Cost = %d\n", minCost);
+    return 0;
+}
