@@ -1,0 +1,192 @@
+
+import time
+import random
+
+INF = float('inf')
+
+
+# ---------------------------------------------------------------------
+# PSEUDOCODE (for the report)
+# ---------------------------------------------------------------------
+PSEUDOCODE = r"""
+ALGORITHM FloydWarshall(dist, n)
+------------------------------------------------------------
+INPUT : dist[n][n] -> direct-link cost matrix (INF if no direct edge,
+                       0 on the diagonal)
+OUTPUT: dist[n][n] -> shortest path cost between every pair (i, j)
+        next[n][n] -> next-hop table for path reconstruction
+
+ 1  FOR i <- 0 TO n-1:
+ 2      FOR j <- 0 TO n-1:
+ 3          next[i][j] <- j   IF dist[i][j] != INF, ELSE undefined
+ 4
+ 5  FOR k <- 0 TO n-1:                      // k = candidate INTERMEDIATE router
+ 6      FOR i <- 0 TO n-1:                  // i = source router
+ 7          FOR j <- 0 TO n-1:              // j = destination router
+ 8              IF dist[i][k] + dist[k][j] < dist[i][j]:
+ 9                  dist[i][j] <- dist[i][k] + dist[k][j]   // relax: route via k is cheaper
+10                  next[i][j]  <- next[i][k]               // update routing table:
+11                                                            // first hop from i to j is now
+12                                                            // the same as first hop from i to k
+13
+14  // After the loop, dist[i][j] is GUARANTEED shortest for every pair (i,j),
+15  // because every possible intermediate router 0..n-1 has been considered
+16  // as a potential "waypoint" for every pair.
+17
+18  FUNCTION reconstructPath(i, j, next):
+19      IF next[i][j] is undefined: RETURN "NO PATH"
+20      path <- [i]
+21      WHILE i != j:
+22          i <- next[i][j]
+23          path.append(i)
+24      RETURN path
+------------------------------------------------------------
+"""
+
+def floyd_warshall(cost_matrix):
+    """
+    cost_matrix: n x n list of lists, INF where no direct edge, 0 on diagonal.
+    Returns (dist, next_hop) after computing all-pairs shortest paths.
+
+    HOW INTERMEDIATE NODES IMPROVE THE COMPUTATION:
+    The algorithm incrementally asks, for every pair (i, j) and every
+    router k (in increasing order): "Is it cheaper to route i -> j via k
+    (i.e. i -> k -> j) than the best route found for i -> j so far?"
+    Because k is tried for EVERY pair on EVERY iteration, by the time k
+    has looped through all n routers, dist[i][j] reflects the shortest
+    path allowed to pass through ANY subset of {0..n-1} as intermediate
+    hops -- which is precisely the true shortest path in the full graph.
+    This is dynamic programming: dist_k[i][j] = shortest path from i to j
+    using only {0..k} as allowed intermediates, built from dist_{k-1}.
+    """
+    n = len(cost_matrix)
+    dist = [row[:] for row in cost_matrix]          # deep copy
+    next_hop = [[j if dist[i][j] != INF and i != j else None
+                 for j in range(n)] for i in range(n)]
+
+    for k in range(n):                    # candidate intermediate router
+        for i in range(n):                 # source
+            dik = dist[i][k]
+            if dik == INF:
+                continue                    # pruning: no path i->k, skip row
+            for j in range(n):              # destination
+                if dist[k][j] == INF:
+                    continue                 # pruning: no path k->j, skip
+                via_k = dik + dist[k][j]
+                if via_k < dist[i][j]:
+                    dist[i][j] = via_k
+                    next_hop[i][j] = next_hop[i][k]
+
+    # Negative-cycle detection (important for a real routing system:
+    # a negative cycle would mean costs are ill-defined / exploitable)
+    negative_cycle = any(dist[v][v] < 0 for v in range(n))
+
+    return dist, next_hop, negative_cycle
+
+
+def reconstruct_path(i, j, next_hop):
+    if next_hop[i][j] is None:
+        return None
+    path = [i]
+    while i != j:
+        i = next_hop[i][j]
+        path.append(i)
+    return path
+
+def demo_small_network():
+    print(PSEUDOCODE)
+    print("=" * 70)
+    print("DEMO 1: 5-router telecom network")
+    print("=" * 70)
+    routers = ["R0", "R1", "R2", "R3", "R4"]
+    n = len(routers)
+    M = INF
+    # direct-link latency matrix (ms); INF = no direct physical link
+    cost = [
+        [0,   3,   M,   7,   M],
+        [8,   0,   2,   M,   M],
+        [5,   M,   0,   1,   M],
+        [2,   M,   M,   0,   4],
+        [M,   M,   M,   M,   0],
+    ]
+
+    print("Direct-link latency matrix (ms), INF = no direct link:")
+    header = "      " + "".join(f"{r:>6}" for r in routers)
+    print(header)
+    for i, row in enumerate(cost):
+        print(f"{routers[i]:>4}: " + "".join(
+            f"{'INF':>6}" if v == M else f"{v:>6}" for v in row))
+
+    t0 = time.perf_counter()
+    dist, next_hop, neg_cycle = floyd_warshall(cost)
+    t1 = time.perf_counter()
+
+    print(f"\nNegative cycle detected: {neg_cycle}")
+    print(f"Computed in {t1 - t0:.6f}s\n")
+
+    print("All-pairs SHORTEST latency matrix (ms):")
+    print(header)
+    for i, row in enumerate(dist):
+        print(f"{routers[i]:>4}: " + "".join(
+            f"{'INF':>6}" if v == M else f"{v:>6}" for v in row))
+
+    print("\nSample routing table lookups (path a router would use):")
+    for (i, j) in [(0, 4), (1, 3), (3, 1), (2, 0)]:
+        path = reconstruct_path(i, j, next_hop)
+        path_str = " -> ".join(routers[p] for p in path) if path else "UNREACHABLE"
+        print(f"  {routers[i]} -> {routers[j]}: cost={dist[i][j]:>3}   route: {path_str}")
+    print()
+
+def dijkstra_all_pairs(cost):
+    """Reference APSP via Dijkstra from every source (for verification)."""
+    import heapq
+    n = len(cost)
+    all_dist = []
+    for src in range(n):
+        d = [INF] * n
+        d[src] = 0
+        pq = [(0, src)]
+        visited = set()
+        while pq:
+            du, u = heapq.heappop(pq)
+            if u in visited:
+                continue
+            visited.add(u)
+            for v in range(n):
+                if cost[u][v] != INF and du + cost[u][v] < d[v]:
+                    d[v] = du + cost[u][v]
+                    heapq.heappush(pq, (d[v], v))
+        all_dist.append(d)
+    return all_dist
+
+
+def demo_verification_and_scaling():
+    print("=" * 70)
+    print("DEMO 2: Correctness verification vs Dijkstra + runtime scaling")
+    print("=" * 70)
+    random.seed(42)
+    for n in (10, 20, 40, 80):
+        M = INF
+        cost = [[0 if i == j else M for j in range(n)] for i in range(n)]
+        # random sparse-ish non-negative weighted directed graph
+        for i in range(n):
+            for _ in range(3):
+                j = random.randrange(n)
+                if j != i:
+                    cost[i][j] = random.randint(1, 20)
+
+        t0 = time.perf_counter()
+        fw_dist, _, neg = floyd_warshall(cost)
+        t1 = time.perf_counter()
+
+        dj_dist = dijkstra_all_pairs(cost)
+        match = all(fw_dist[i][j] == dj_dist[i][j] for i in range(n) for j in range(n))
+
+        print(f"n={n:>3} routers | Floyd-Warshall time: {t1 - t0:.6f}s | "
+              f"matches Dijkstra-from-every-node: {match} | negative cycle: {neg}")
+    print()
+
+
+if __name__ == "__main__":
+    demo_small_network()
+    demo_verification_and_scaling()
