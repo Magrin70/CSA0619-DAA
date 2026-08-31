@@ -1,0 +1,219 @@
+
+import random
+import string
+import time
+from itertools import permutations
+
+
+UPPER = string.ascii_uppercase          # A-Z  (26)
+LOWER = string.ascii_lowercase          # a-z  (26)
+DIGIT = string.digits                   # 0-9  (10)
+SPECIAL = "!@#$%^&*()-_=+"              # 16 symbols
+
+FULL_ALPHABET = UPPER + LOWER + DIGIT + SPECIAL   # 76 distinct characters
+
+
+def char_class(c):
+    """Return which required category a character belongs to."""
+    if c in UPPER:
+        return "U"
+    if c in LOWER:
+        return "L"
+    if c in DIGIT:
+        return "D"
+    if c in SPECIAL:
+        return "S"
+    return None
+
+def backtrack_generate(length, alphabet, required_classes=("U", "D"),
+                        randomize=False, collect_all=False, limit=None):
+    """
+    Backtracking search over positions 0..length-1.
+
+    State (per call level):
+        path         : characters chosen so far (list)
+        used         : set of characters already used (no-repeat constraint)
+        satisfied    : set of required classes already satisfied
+
+    Pruning rules applied BEFORE recursing into a branch:
+      P1 (No-repeat pruning): a candidate character already in `used`
+          is skipped entirely (never explored) -> removes all permutations
+          containing a duplicate without wasting search time on them.
+      P2 (Feasibility pruning): let
+              remaining_slots      = length - len(path) - 1   (after placing
+                                       the current candidate)
+              missing_after_choice = required_classes not yet satisfied
+                                       once this candidate is placed
+          If len(missing_after_choice) > remaining_slots, the candidate
+          cannot possibly lead to a valid password (not enough room left
+          to satisfy the still-missing classes) -> branch is cut, its
+          entire subtree (which could be huge) is never generated.
+      P3 (Alphabet exhaustion pruning): if the number of unused characters
+          left is less than the number of remaining positions, the branch
+          cannot be completed -> cut.
+
+    Goal test (leaf, len(path) == length):
+        valid  <=>  all required_classes subset of satisfied
+                    (no-repeat and length are already guaranteed by
+                     construction, not re-checked)
+
+    Returns:
+        collect_all=True  -> list of ALL valid passwords found (bounded by
+                              `limit` if provided) -- used to demonstrate
+                              completeness on a small alphabet.
+        collect_all=False -> the FIRST valid password found (used for fast
+                              single-password generation; randomize=True
+                              shuffles candidate order so different calls
+                              return different secure passwords).
+    """
+    results = []
+    path = []
+    used = set()
+
+    order = list(alphabet)
+
+    def solve():
+        # ---- Goal test ----
+        if len(path) == length:
+            if required_classes.issubset(satisfied):
+                results.append("".join(path))
+                return True   # signal: a solution was found at this leaf
+            return False
+
+        candidates = order[:] if not randomize else random.sample(order, len(order))
+
+        for ch in candidates:
+            if ch in used:                       # P1: no-repeat pruning
+                continue
+
+            cls = char_class(ch)
+            new_satisfied = satisfied | ({cls} if cls in required_classes else set())
+            remaining_slots_after = length - len(path) - 1
+            still_missing = required_classes - new_satisfied
+
+            if len(still_missing) > remaining_slots_after:   # P2: feasibility pruning
+                continue
+
+            unused_left = len(alphabet) - len(used) - 1
+            if unused_left < remaining_slots_after:          # P3: exhaustion pruning
+                continue
+
+            # ---- choose ----
+            path.append(ch)
+            used.add(ch)
+            satisfied.add(cls) if cls in required_classes else None
+            added_new = cls in required_classes and cls not in (satisfied - ({cls} if cls in required_classes else set()))
+
+            found_leaf = solve()
+
+            # ---- un-choose (backtrack) ----
+            path.pop()
+            used.discard(ch)
+            if cls in required_classes:
+                # only remove if no earlier char in current path still provides it
+                if not any(char_class(p) == cls for p in path):
+                    satisfied.discard(cls)
+
+            if found_leaf and not collect_all:
+                return True                       # short-circuit: single answer wanted
+            if collect_all and limit is not None and len(results) >= limit:
+                return True                        # short-circuit: enough samples
+        return False
+
+    required_classes = set(required_classes)
+    satisfied = set()
+    solve()
+    return results if collect_all else (results[0] if results else None)
+
+def brute_force_count(length, alphabet, required_classes=("U", "D")):
+    """Reference brute-force (itertools.permutations) count, used only to
+    verify the backtracking search is COMPLETE (finds every valid string)
+    and CORRECT (finds only valid strings)."""
+    required_classes = set(required_classes)
+    count = 0
+    for p in permutations(alphabet, length):
+        classes_present = {char_class(c) for c in p}
+        if required_classes.issubset(classes_present):
+            count += 1
+    return count
+
+
+def demo_enumeration():
+    print("=" * 70)
+    print("DEMO 1: Small-alphabet ENUMERATION (proves completeness)")
+    print("=" * 70)
+    small_alphabet = "AB12ab"          # 2 upper, 2 digit, 2 lower -> 6 chars
+    length = 4
+    required = ("U", "D")
+
+    t0 = time.perf_counter()
+    all_valid = backtrack_generate(length, small_alphabet,
+                                    required_classes=required,
+                                    randomize=False, collect_all=True)
+    t1 = time.perf_counter()
+
+    brute = brute_force_count(length, small_alphabet, required)
+
+    print(f"Alphabet: {small_alphabet!r}  (|alphabet|={len(small_alphabet)}), N={length}")
+    print(f"Required classes: {required}  (U=upper, D=digit)")
+    print(f"Total permutations of length {length} (no constraint, no repeat) : "
+          f"{len(list(permutations(small_alphabet, length)))}")
+    print(f"Valid passwords found by BACKTRACKING search : {len(all_valid)}")
+    print(f"Valid passwords found by BRUTE-FORCE check    : {brute}")
+    print(f"Match -> completeness & correctness verified   : {len(all_valid) == brute}")
+    print(f"Backtracking search time: {t1 - t0:.6f}s")
+    print("\nFirst 10 valid passwords generated:")
+    for pw in all_valid[:10]:
+        print("   ", pw)
+    print()
+
+
+def demo_generation():
+    print("=" * 70)
+    print("DEMO 2: Secure password GENERATION on full 76-char alphabet")
+    print("=" * 70)
+    print(f"Full alphabet size = {len(FULL_ALPHABET)} "
+          f"(26 upper + 26 lower + 10 digit + 16 special)\n")
+
+    for N in (8, 12, 16):
+        t0 = time.perf_counter()
+        pw = backtrack_generate(N, FULL_ALPHABET,
+                                 required_classes=("U", "D"),
+                                 randomize=True, collect_all=False)
+        t1 = time.perf_counter()
+        ok_len = len(pw) == N
+        ok_unique = len(set(pw)) == len(pw)
+        ok_upper = any(c in UPPER for c in pw)
+        ok_digit = any(c in DIGIT for c in pw)
+        print(f"N={N:>2}  password = {pw!r}")
+        print(f"      checks -> length OK: {ok_len}, no-repeat: {ok_unique}, "
+              f"has-upper: {ok_upper}, has-digit: {ok_digit}  "
+              f"(generated in {t1 - t0:.6f}s)")
+    print()
+
+
+
+def demo_search_space_analysis():
+    print("=" * 70)
+    print("DEMO 3: Search space size analysis")
+    print("=" * 70)
+    import math
+    for N in (8, 12, 16):
+        A = len(FULL_ALPHABET)
+        unrestricted_with_repeat = A ** N
+        unrestricted_no_repeat = math.perm(A, N)
+        print(f"N={N:>2}: with-repetition space = {A}^{N} = {unrestricted_with_repeat:.3e}, "
+              f"no-repeat space (P({A},{N})) = {unrestricted_no_repeat:.3e}")
+    print("\nAdding 'must contain >=1 upper' and '>=1 digit' PRUNES this space:")
+    print(" - by inclusion-exclusion, valid fraction shrinks the count,")
+    print("   but pruning (P1-P3) means the backtracking tree only ever")
+    print("   VISITS nodes that can still lead to a valid leaf -- it never")
+    print("   materializes the full no-repeat permutation space.")
+    print()
+
+
+if __name__ == "__main__":
+    random.seed()  # non-deterministic across runs; fine for a generator
+    demo_search_space_analysis()
+    demo_enumeration()
+    demo_generation()
