@@ -1,0 +1,191 @@
+
+import heapq
+import time
+import random
+
+PSEUDOCODE = r"""
+ALGORITHM Prim(graph, n, source)                  ALGORITHM Kruskal(edges, n)
+------------------------------------------        ------------------------------------------
+INPUT : adjacency list, n vertices, start node     INPUT : edge list (u,v,w), n vertices
+OUTPUT: MST edge set, total weight                 OUTPUT: MST edge set, total weight
+
+ 1 visited <- {source}                              1 SORT edges by weight ascending
+ 2 MST <- {}                                         2 MST <- {}
+ 3 minHeap <- all edges from source, keyed by w      3 initialize Union-Find (Disjoint Set) over n vertices
+ 4 WHILE minHeap not empty AND |visited| < n:         4 FOR each edge (u, v, w) in sorted edges:
+ 5     (w, u, v) <- extractMin(minHeap)               5     IF find(u) != find(v):        // no cycle formed
+ 6     IF v in visited: CONTINUE   // stale entry      6         MST.add((u, v, w))
+ 7     visited.add(v)                                 7         union(u, v)
+ 8     MST.add((u, v, w))                             8         IF |MST| == n - 1: BREAK   // tree complete
+ 9     FOR each (v, x, w2) in graph[v]:                9 RETURN MST
+10         IF x not in visited:
+11             push (w2, v, x) to minHeap
+12 RETURN MST
+------------------------------------------        ------------------------------------------
+
+KEY DIFFERENCE IN STRATEGY:
+  Prim  : GROWS ONE TREE from a start vertex, always adding the cheapest
+          edge that connects the current tree to a NEW (unvisited) vertex.
+          -> vertex-centric, uses a priority queue (min-heap).
+  Kruskal: Considers ALL edges globally in increasing weight order, adding
+          an edge if and only if it does NOT create a cycle (checked via
+          Union-Find). The forest may have several disconnected tree
+          fragments that merge over time.
+          -> edge-centric, uses sorting + disjoint-set union.
+"""
+
+
+class UnionFind:
+    def __init__(self, n):
+        self.parent = list(range(n))
+        self.rank = [0] * n
+
+    def find(self, x):
+        while self.parent[x] != x:
+            self.parent[x] = self.parent[self.parent[x]]   # path compression
+            x = self.parent[x]
+        return x
+
+    def union(self, a, b):
+        ra, rb = self.find(a), self.find(b)
+        if ra == rb:
+            return False               # already connected -> would form a cycle
+        if self.rank[ra] < self.rank[rb]:
+            ra, rb = rb, ra
+        self.parent[rb] = ra
+        if self.rank[ra] == self.rank[rb]:
+            self.rank[ra] += 1
+        return True
+
+
+def prim_mst(n, edges, source=0, trace=False):
+    adj = {i: [] for i in range(n)}
+    for u, v, w in edges:
+        adj[u].append((w, v))
+        adj[v].append((w, u))
+
+    visited = [False] * n
+    visited[source] = True
+    mst = []
+    total = 0
+    heap = [(w, source, v) for w, v in adj[source]]
+    heapq.heapify(heap)
+    steps = []
+
+    while heap and len(mst) < n - 1:
+        w, u, v = heapq.heappop(heap)
+        if visited[v]:
+            steps.append(f"  reject ({u}-{v}, w={w}) -> {v} already in tree")
+            continue                      # stale / would-be cycle edge
+        visited[v] = True
+        mst.append((u, v, w))
+        total += w
+        steps.append(f"  ADD  ({u}-{v}, w={w}) -> grows tree to include vertex {v}")
+        for w2, x in adj[v]:
+            if not visited[x]:
+                heapq.heappush(heap, (w2, v, x))
+
+    if trace:
+        for s in steps:
+            print(s)
+    return mst, total
+
+
+def kruskal_mst(n, edges, trace=False):
+    sorted_edges = sorted(edges, key=lambda e: e[2])
+    uf = UnionFind(n)
+    mst = []
+    total = 0
+    steps = []
+
+    for u, v, w in sorted_edges:
+        if uf.find(u) != uf.find(v):
+            uf.union(u, v)
+            mst.append((u, v, w))
+            total += w
+            steps.append(f"  ADD  ({u}-{v}, w={w}) -> merges two components")
+            if len(mst) == n - 1:
+                break
+        else:
+            steps.append(f"  reject ({u}-{v}, w={w}) -> would form a cycle")
+
+    if trace:
+        for s in steps:
+            print(s)
+    return mst, total
+
+
+def demo_side_by_side():
+    print(PSEUDOCODE)
+    print("=" * 70)
+    print("DEMO 1: Side-by-side edge selection on the same graph")
+    print("=" * 70)
+    n = 6
+    edges = [
+        (0, 1, 4), (0, 2, 4), (1, 2, 2), (1, 0, 4),
+        (2, 3, 3), (2, 5, 2), (2, 4, 4), (3, 4, 3),
+        (5, 4, 3),
+    ]
+    print(f"Vertices: {n}, Edges: {edges}\n")
+
+    print("-- PRIM'S trace (starting at vertex 0) --")
+    mst_p, total_p = prim_mst(n, edges, source=0, trace=True)
+    print(f"Prim MST edges  : {mst_p}")
+    print(f"Prim total weight: {total_p}\n")
+
+    print("-- KRUSKAL'S trace (edges sorted by weight first) --")
+    print("  sorted edges:", sorted(edges, key=lambda e: e[2]))
+    mst_k, total_k = kruskal_mst(n, edges, trace=True)
+    print(f"Kruskal MST edges  : {mst_k}")
+    print(f"Kruskal total weight: {total_k}\n")
+
+    same_weight = total_p == total_k
+    print(f"Both algorithms reach the SAME total MST weight: {same_weight}")
+    print("(edge SETS may differ if there are ties in weight - both are still")
+    print(" valid minimum spanning trees)\n")
+
+
+def random_graph(n, density, seed):
+    """density in (0,1]: fraction of possible edges (n*(n-1)/2) included."""
+    random.seed(seed)
+    all_pairs = [(u, v) for u in range(n) for v in range(u + 1, n)]
+    random.shuffle(all_pairs)
+    m = max(n - 1, int(density * len(all_pairs)))     # ensure connectivity possible
+    chosen = all_pairs[:m]
+    edges = [(u, v, random.randint(1, 100)) for u, v in chosen]
+    # ensure connectivity: chain the vertices first, then add random edges
+    chain = [(i, i + 1, random.randint(1, 100)) for i in range(n - 1)]
+    return chain + edges
+
+
+def demo_performance():
+    print("=" * 70)
+    print("DEMO 2: Performance comparison - sparse vs dense graphs")
+    print("=" * 70)
+    configs = [
+        ("Sparse", 200, 0.01),
+        ("Sparse", 500, 0.01),
+        ("Dense",  200, 0.5),
+        ("Dense",  500, 0.5),
+        ("Dense",  500, 0.9),
+    ]
+    print(f"{'Type':<8}{'V':>6}{'E (approx)':>12}{'Prim time':>14}{'Kruskal time':>16}{'Same MST wt?':>14}")
+    for label, n, density in configs:
+        edges = random_graph(n, density, seed=1)
+        m = len(edges)
+
+        t0 = time.perf_counter()
+        _, wp = prim_mst(n, edges, source=0)
+        t1 = time.perf_counter()
+
+        t2 = time.perf_counter()
+        _, wk = kruskal_mst(n, edges)
+        t3 = time.perf_counter()
+
+        print(f"{label:<8}{n:>6}{m:>12}{t1 - t0:>13.5f}s{t3 - t2:>15.5f}s{str(wp == wk):>14}")
+    print()
+
+
+if __name__ == "__main__":
+    demo_side_by_side()
+    demo_performance()
